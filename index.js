@@ -1,29 +1,16 @@
 const express = require('express');
 const axios = require('axios');
-const cors = require('cors');
-
 const app = express();
+
 const PORT = process.env.PORT || 3000;
 
 // Enable CORS
-app.use(cors());
-
-// Helper function to get thumbnail
-async function getThumbnailUrl(assetId) {
-  try {
-    const response = await axios.get(
-      `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=150x150&format=Png&returnPolicy=PlaceHolder`,
-      { timeout: 5000 }
-    );
-    
-    if (response.data?.data?.[0]?.imageUrl) {
-      return response.data.data[0].imageUrl;
-    }
-  } catch (error) {
-    console.log(`Thumbnail error for ${assetId}: ${error.message}`);
-  }
-  return null;
-}
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  next();
+});
 
 // Search endpoint
 app.get('/search', async (req, res) => {
@@ -31,41 +18,71 @@ app.get('/search', async (req, res) => {
     const query = req.query.q || '';
     const cursor = req.query.cursor || '';
     
-    let url = `https://catalog.roblox.com/v1/search/items?category=Decals&keyword=${encodeURIComponent(query)}&limit=30&salesTypeFilter=1`;
+    // Use the catalog API v2 which returns better data
+    let url = `https://catalog.roblox.com/v2/search/items?category=Decals&keyword=${encodeURIComponent(query)}&limit=30`;
     
     if (cursor) {
       url += `&cursor=${encodeURIComponent(cursor)}`;
     }
     
-    console.log('Searching:', query);
+    console.log('Searching:', url);
     
-    const response = await axios.get(url, { timeout: 10000 });
+    const response = await axios.get(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0'
+      }
+    });
+    
     const data = response.data;
     
-    // Process each item to add thumbnail
-    if (data.data && Array.isArray(data.data)) {
-      for (let item of data.data) {
-        if (item.id) {
-          // Try to get thumbnail
-          const thumbnail = await getThumbnailUrl(item.id);
-          if (thumbnail) {
-            item.thumbnailUrl = thumbnail;
-          }
-          
-          // Simple texture ID conversion
-          item.textureId = item.id - 1;
+    // Process and clean the data
+    if (data && data.data) {
+      const cleanedData = data.data.map(item => {
+        // Extract the actual asset ID (not the weird huge numbers)
+        let assetId = item.id;
+        
+        // If ID is corrupted (too large), try to extract from item
+        if (assetId > 999999999999) {
+          // Try to get from itemTargetId or other fields
+          assetId = item.itemTargetId || item.targetId || Math.floor(assetId / 10000000);
         }
-      }
+        
+        return {
+          id: assetId,
+          name: item.name || 'Decal',
+          creatorName: item.creatorName || 'Unknown'
+        };
+      });
+      
+      res.json({
+        data: cleanedData,
+        nextPageCursor: data.nextPageCursor
+      });
+    } else {
+      res.json({ data: [], nextPageCursor: null });
     }
-    
-    res.json(data);
     
   } catch (error) {
     console.error('Search error:', error.message);
-    res.status(500).json({ 
-      error: 'Search failed',
-      message: error.message 
-    });
+    
+    // Fallback to v1 API if v2 fails
+    try {
+      const query = req.query.q || '';
+      const cursor = req.query.cursor || '';
+      
+      let url = `https://catalog.roblox.com/v1/search/items?category=FreeDecals&keyword=${encodeURIComponent(query)}&limit=30`;
+      
+      if (cursor) {
+        url += `&cursor=${encodeURIComponent(cursor)}`;
+      }
+      
+      const response = await axios.get(url);
+      res.json(response.data);
+      
+    } catch (fallbackError) {
+      res.status(500).json({ error: 'Search failed', message: fallbackError.message });
+    }
   }
 });
 
@@ -73,7 +90,7 @@ app.get('/search', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     status: 'online',
-    message: 'Roblox Proxy Server Running'
+    message: 'Roblox Decal Proxy'
   });
 });
 
