@@ -22,10 +22,8 @@ app.get('/search', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('Roblox Catalog Proxy Running!');
+  res.send('Koyeb Proxy - 100% Free Forever!');
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log('Server running on port ' + PORT);
-});
+const PORT = process.env.PORT || 8000;
+app.listen(PORT, () => console.log('Running on ' + PORT));
