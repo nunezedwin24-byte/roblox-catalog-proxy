@@ -15,6 +15,18 @@ app.get('/search', async (req, res) => {
   try {
     const response = await fetch(url);
     const data = await response.json();
+    
+    // FILTER: Only return results where the query appears in the name
+    if (data.data) {
+      const queryLower = query.toLowerCase();
+      data.data = data.data.filter(item => {
+        const nameLower = (item.name || '').toLowerCase();
+        return nameLower.includes(queryLower);
+      });
+      
+      console.log(`Filtered ${data.data.length} relevant results for "${query}"`);
+    }
+    
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: 'Failed' });
@@ -22,8 +34,8 @@ app.get('/search', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('Koyeb Proxy - 100% Free Forever!');
+  res.send('Roblox Proxy with Smart Filtering!');
 });
 
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Running on ' + PORT));
