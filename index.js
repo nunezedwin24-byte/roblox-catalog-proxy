@@ -1,63 +1,112 @@
-// server.js (or index.js) on your Render.com deployment
 const express = require('express');
 const axios = require('axios');
 const app = express();
 
 const PORT = process.env.PORT || 3000;
 
-// Helper to get texture ID from decal ID
+// Enable CORS for Roblox
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  next();
+});
+
+// Get thumbnail URL from Roblox (THIS WORKS from external servers!)
+async function getThumbnailUrl(assetId) {
+  try {
+    const url = `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=150x150&format=Png&returnPolicy=PlaceHolder`;
+    const response = await axios.get(url);
+    
+    if (response.data && response.data.data && response.data.data[0]) {
+      const imageUrl = response.data.data[0].imageUrl;
+      if (imageUrl) {
+        console.log(`✓ Got thumbnail for ${assetId}:`, imageUrl.substring(0, 50));
+        return imageUrl;
+      }
+    }
+  } catch (error) {
+    console.error(`✗ Thumbnail failed for ${assetId}:`, error.message);
+  }
+  return null;
+}
+
+// Get texture ID from decal XML
 async function getTextureFromDecal(decalId) {
   try {
-    // Get decal details from Roblox API
     const response = await axios.get(`https://assetdelivery.roblox.com/v1/asset/?id=${decalId}`);
     const xml = response.data;
     
-    // Extract texture ID from the XML response
     const match = xml.match(/<url>.*?(\d+)<\/url>/);
     if (match && match[1]) {
-      return parseInt(match[1]);
+      const textureId = parseInt(match[1]);
+      console.log(`✓ Extracted texture ${textureId} from decal ${decalId}`);
+      return textureId;
     }
-    
-    // Fallback to -1 method
-    return decalId - 1;
   } catch (error) {
-    console.error('Error getting texture:', error.message);
-    return decalId - 1; // Fallback
+    console.error(`✗ Texture extraction failed for ${decalId}:`, error.message);
   }
+  
+  // Fallback
+  return decalId - 1;
 }
 
-// Search endpoint
+// Main search endpoint
 app.get('/search', async (req, res) => {
   try {
     const query = req.query.q || '';
     const cursor = req.query.cursor || '';
     
-    let url = `https://catalog.roblox.com/v1/search/items?category=Decals&keyword=${encodeURIComponent(query)}&limit=30&salesTypeFilter=1`;
+    let catalogUrl = `https://catalog.roblox.com/v1/search/items?category=Decals&keyword=${encodeURIComponent(query)}&limit=30&salesTypeFilter=1`;
     
     if (cursor) {
-      url += `&cursor=${encodeURIComponent(cursor)}`;
+      catalogUrl += `&cursor=${encodeURIComponent(cursor)}`;
     }
     
-    console.log('Searching:', url);
+    console.log('\n=== NEW SEARCH ===');
+    console.log('Query:', query);
+    console.log('URL:', catalogUrl);
     
-    const response = await axios.get(url);
+    const response = await axios.get(catalogUrl);
     const data = response.data;
     
-    // Convert decal IDs to texture IDs
     if (data.data && data.data.length > 0) {
-      const promises = data.data.map(async (item) => {
-        if (item.id) {
-          const textureId = await getTextureFromDecal(item.id);
-          return {
-            ...item,
-            id: textureId,  // Replace with texture ID
-            originalId: item.id  // Keep original for reference
-          };
-        }
-        return item;
-      });
+      console.log(`Found ${data.data.length} decals, processing...`);
       
-      data.data = await Promise.all(promises);
+      // Process items in batches to avoid overwhelming APIs
+      const batchSize = 5;
+      const processedData = [];
+      
+      for (let i = 0; i < data.data.length; i += batchSize) {
+        const batch = data.data.slice(i, i + batchSize);
+        
+        const batchPromises = batch.map(async (item) => {
+          if (item.id && typeof item.id === 'number') {
+            const decalId = item.id;
+            
+            // Get BOTH thumbnail URL and texture ID
+            const [thumbnailUrl, textureId] = await Promise.all([
+              getThumbnailUrl(decalId),
+              getTextureFromDecal(decalId)
+            ]);
+            
+            return {
+              ...item,
+              id: textureId,              // Converted texture ID
+              originalId: decalId,        // Original decal ID
+              thumbnailUrl: thumbnailUrl  // Direct image URL!
+            };
+          }
+          return item;
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        processedData.push(...batchResults);
+        
+        // Small delay between batches
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      data.data = processedData;
+      console.log(`✓ Processed ${processedData.length} items`);
     }
     
     res.json(data);
@@ -67,6 +116,18 @@ app.get('/search', async (req, res) => {
   }
 });
 
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'online',
+    message: 'Roblox Decal Proxy Server',
+    endpoints: {
+      search: '/search?q=QUERY&cursor=CURSOR'
+    }
+  });
+});
+
 app.listen(PORT, () => {
-  console.log(`Proxy server running on port ${PORT}`);
+  console.log(`🚀 Proxy server running on port ${PORT}`);
+  console.log(`📡 Ready to fetch decals and thumbnails!`);
 });
