@@ -10,31 +10,35 @@ app.use((req, res, next) => {
 app.get('/search', async (req, res) => {
   const query = req.query.q || 'icon';
   const cursor = req.query.cursor || '';
-  const url = `https://catalog.roblox.com/v1/search/items?category=All&subcategory=Decals&limit=30&keyword=${encodeURIComponent(query)}${cursor ? '&cursor=' + cursor : ''}`;
+  
+  // Use the Creator Marketplace search instead
+  const url = `https://apis.roblox.com/toolbox-service/v1/marketplace/search?category=Decals&keyword=${encodeURIComponent(query)}&pageSize=30${cursor ? '&cursor=' + cursor : ''}`;
   
   try {
     const response = await fetch(url);
     const data = await response.json();
     
-    // FILTER: Only return results where the query appears in the name
-    if (data.data) {
-      const queryLower = query.toLowerCase();
-      data.data = data.data.filter(item => {
-        const nameLower = (item.name || '').toLowerCase();
-        return nameLower.includes(queryLower);
-      });
-      
-      console.log(`Filtered ${data.data.length} relevant results for "${query}"`);
-    }
+    // Convert to expected format
+    const converted = {
+      data: data.results ? data.results.map(item => ({
+        id: item.assetId || item.id,
+        name: item.name,
+        description: item.description || '',
+        creatorName: item.creatorName || 'Unknown'
+      })) : [],
+      nextPageCursor: data.nextCursor || null
+    };
     
-    res.json(data);
+    console.log(`Found ${converted.data.length} results for "${query}"`);
+    res.json(converted);
   } catch (error) {
-    res.status(500).json({ error: 'Failed' });
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'Failed', data: [] });
   }
 });
 
 app.get('/', (req, res) => {
-  res.send('Roblox Proxy with Smart Filtering!');
+  res.send('Roblox Toolbox Search Proxy!');
 });
 
 const PORT = process.env.PORT || 3000;
