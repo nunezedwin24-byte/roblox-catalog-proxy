@@ -11,34 +11,34 @@ app.get('/search', async (req, res) => {
   const query = req.query.q || 'icon';
   const cursor = req.query.cursor || '';
   
-  // Use the Creator Marketplace search instead
-  const url = `https://apis.roblox.com/toolbox-service/v1/marketplace/search?category=Decals&keyword=${encodeURIComponent(query)}&pageSize=30${cursor ? '&cursor=' + cursor : ''}`;
+  // Use Creator Store API (what create.roblox.com uses)
+  const url = `https://apis.roblox.com/toolbox-service/v1/items/search?category=Decals&searchKeyword=${encodeURIComponent(query)}&limit=30${cursor ? '&cursor=' + cursor : ''}`;
   
   try {
     const response = await fetch(url);
     const data = await response.json();
     
-    // Convert to expected format
+    // Convert format
     const converted = {
-      data: data.results ? data.results.map(item => ({
-        id: item.assetId || item.id,
+      data: data.items ? data.items.map(item => ({
+        id: item.id,
         name: item.name,
         description: item.description || '',
-        creatorName: item.creatorName || 'Unknown'
+        creatorName: item.creator?.name || 'Unknown'
       })) : [],
-      nextPageCursor: data.nextCursor || null
+      nextPageCursor: data.nextPageCursor || null
     };
     
-    console.log(`Found ${converted.data.length} results for "${query}"`);
+    console.log(`Creator Store: Found ${converted.data.length} results for "${query}"`);
     res.json(converted);
   } catch (error) {
-    console.error('Search error:', error);
+    console.error('Creator Store search error:', error);
     res.status(500).json({ error: 'Failed', data: [] });
   }
 });
 
 app.get('/', (req, res) => {
-  res.send('Roblox Toolbox Search Proxy!');
+  res.send('Roblox Creator Store Proxy!');
 });
 
 const PORT = process.env.PORT || 3000;
